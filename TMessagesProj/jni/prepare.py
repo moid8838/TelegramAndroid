@@ -9,7 +9,7 @@ def finish(code):
     sys.exit(code)
 
 def error(text):
-    print('[ERROR] ' + text)
+    print(f'[ERROR] {text}')
     finish(1)
 
 arm64 = False
@@ -45,19 +45,19 @@ options = []
 runCommand = []
 customRunCommand = False
 for arg in sys.argv[1:]:
-    if arg == "arm64":
-        arm64 = True
-        arches.append(arg)
-        options.append(arg)
     if arg == "arm":
         arm = True
         arches.append(arg)
         options.append(arg)
-    if arg == "x86":
+    elif arg == "arm64":
+        arm64 = True
+        arches.append(arg)
+        options.append(arg)
+    elif arg == "x86":
         x86 = True
         arches.append(arg)
         options.append(arg)
-    if arg == "x86_64":
+    elif arg == "x86_64":
         x86_64 = True
         arches.append(arg)
         options.append(arg)
@@ -73,8 +73,8 @@ for arg in sys.argv[1:]:
     elif arg == 'run':
         customRunCommand = True
 
-if not os.path.isdir(projDir + '/' + keysLoc):
-    pathlib.Path(projDir + '/' + keysLoc).mkdir(parents=True, exist_ok=True)
+if not os.path.isdir(f'{projDir}/{keysLoc}'):
+    pathlib.Path(f'{projDir}/{keysLoc}').mkdir(parents=True, exist_ok=True)
 # if not os.path.isdir(libsDir + '/' + keysLoc):
 #     pathlib.Path(libsDir + '/' + keysLoc).mkdir(parents=True, exist_ok=True)
 # if not os.path.isdir(thirdPartyDir + '/' + keysLoc):
@@ -98,9 +98,9 @@ ignoreInCacheForThirdParty = [
 environmentKeyString = ''
 envForThirdPartyKeyString = ''
 for key in environment:
-    part = key + '=' + environment[key] + ';'
+    part = f'{key}={environment[key]};'
     environmentKeyString += part
-    if not key in ignoreInCacheForThirdParty:
+    if key not in ignoreInCacheForThirdParty:
         envForThirdPartyKeyString += part
 environmentKey = hashlib.sha1(environmentKeyString.encode('utf-8')).hexdigest()
 envForThirdPartyKey = hashlib.sha1(envForThirdPartyKeyString.encode('utf-8')).hexdigest()
@@ -113,10 +113,10 @@ def computeFileHash(path):
     sha1 = hashlib.sha1()
     with open(path, 'rb') as f:
         while True:
-            data = f.read(256 * 1024)
-            if not data:
+            if data := f.read(256 * 1024):
+                sha1.update(data)
+            else:
                 break
-            sha1.update(data)
     return sha1.hexdigest()
 
 def computeCacheKey(stage):
@@ -132,15 +132,15 @@ def computeCacheKey(stage):
         stage['commands']
     ]
     for pattern in stage['dependencies']:
-        pathlist = glob.glob(libsDir + '/' + pattern)
+        pathlist = glob.glob(f'{libsDir}/{pattern}')
         items = [pattern]
-        if len(pathlist) == 0:
-            pathlist = glob.glob(thirdPartyDir + '/' + pattern)
-        if len(pathlist) == 0:
-            error('Nothing found: ' + pattern)
+        if not pathlist:
+            pathlist = glob.glob(f'{thirdPartyDir}/{pattern}')
+        if not pathlist:
+            error(f'Nothing found: {pattern}')
         for path in pathlist:
             if not os.path.exists(path):
-                error('Not found: ' + path)
+                error(f'Not found: {path}')
             items.append(computeFileHash(path))
         objects.append(':'.join(items))
     return hashlib.sha1(';'.join(objects).encode('utf-8')).hexdigest()
@@ -149,7 +149,7 @@ def keyPath(stage):
     return stage['directory'] + '/' + keysLoc + '/' + stage['name']
 
 def checkCacheKey(stage):
-    if not 'key' in stage:
+    if 'key' not in stage:
         error('Key not set in stage: ' + stage['name'])
     key = keyPath(stage)
     if not os.path.exists(stage['directory'] + '/' + stage['name']):
@@ -165,7 +165,7 @@ def clearCacheKey(stage):
         os.remove(key)
 
 def writeCacheKey(stage):
-    if not 'key' in stage:
+    if 'key' not in stage:
         error('Key not set in stage: ' + stage['name'])
     key = keyPath(stage)
     with open(key, 'w') as file:
@@ -175,8 +175,13 @@ stages = []
 
 def removeDir(folder):
     if win:
-        return 'if exist ' + folder + ' rmdir /Q /S ' + folder + '\nif exist ' + folder + ' exit /b 1'
-    return 'rm -rf ' + folder
+        return (
+            f'if exist {folder} rmdir /Q /S {folder}'
+            + '\nif exist '
+            + folder
+            + ' exit /b 1'
+        )
+    return f'rm -rf {folder}'
 
 def filterByPlatform(commands):
     commands = commands.split('\n')
@@ -186,8 +191,8 @@ def filterByPlatform(commands):
     skip = False
     for command in commands:
         m = re.match(r'(!?)([a-z0-9_]+):', command)
-        if m and m.group(2) != 'depends' and m.group(2) != 'version':
-            scopes = m.group(2).split('_')
+        if m and m[2] != 'depends' and m[2] != 'version':
+            scopes = m[2].split('_')
             inscope = 'common' in scopes
             if arm64 and 'arm64' in scopes:
                 inscope = True
@@ -204,12 +209,12 @@ def filterByPlatform(commands):
             #         inscope = False
             #     elif len(scopes) == 1:
             #         continue
-            skip = inscope if m.group(1) == '!' else not inscope
+            skip = inscope if m[1] == '!' else not inscope
         elif not skip and not re.match(r'\s*#', command):
-            if m and m.group(2) == 'version':
-                version = version + '.' + command[len(m.group(0)):].strip()
-            elif m and m.group(2) == 'depends':
-                pattern = command[len(m.group(0)):].strip()
+            if m and m[2] == 'version':
+                version = f'{version}.{command[len(m[0]):].strip()}'
+            elif m and m[2] == 'depends':
+                pattern = command[len(m[0]):].strip()
                 dependencies.append(pattern)
             else:
                 command = command.strip()
@@ -243,9 +248,9 @@ def winFailOnEach(command):
     for command in commands:
         command = re.sub(r'\$([A-Za-z0-9_]+)', r'%\1%', command)
         if re.search(r'\$', command):
-            error('Bad command: ' + command)
+            error(f'Bad command: {command}')
         appendCall = startingCommand and not re.match(r'(if|for) ', command)
-        called = 'call ' + command if appendCall else command
+        called = f'call {command}' if appendCall else command
         result = result + called
         if command.endswith('^'):
             startingCommand = False
@@ -271,7 +276,7 @@ def run(commands):
             os.remove("command.bat")
         return result
     elif re.search(r'\%', commands):
-        error('Bad command: ' + commands)
+        error(f'Bad command: {commands}')
     else:
         return subprocess.run("set -e\n" + commands, shell=True, env=modifiedEnv).returncode == 0
 
@@ -328,25 +333,32 @@ def runStages():
                 found = True
                 break
         if not found:
-            error('Unknown argument: ' + arg)
+            error(f'Unknown argument: {arg}')
     count = len(stages)
     index = 0
     for stage in stages:
-        if len(onlyStages) > 0 and not stage['name'] in onlyStages:
+        if onlyStages and stage['name'] not in onlyStages:
             continue
         index = index + 1
         version = ('#' + str(stage['version'])) if (stage['version'] != '0') else ''
-        prefix = '[' + str(index) + '/' + str(count) + '](' + stage['location'] + '/' + stage['name'] + version + ')'
-        print(prefix + ': ', end = '', flush=True)
+        prefix = (
+            f'[{str(index)}/{count}]('
+            + stage['location']
+            + '/'
+            + stage['name']
+            + version
+            + ')'
+        )
+        print(f'{prefix}: ', end = '', flush=True)
         stage['key'] = computeCacheKey(stage)
         commands = removeDir(stage['name']) + '\n' + stage['commands']
-        checkResult = 'Forced' if len(onlyStages) > 0 else checkCacheKey(stage)
+        checkResult = 'Forced' if onlyStages else checkCacheKey(stage)
         if checkResult == 'Good':
             print('SKIPPING')
             continue
         elif checkResult == 'NotFound':
             print('NOT FOUND, ', end='')
-        elif checkResult == 'Stale' or checkResult == 'Forced':
+        elif checkResult in ['Stale', 'Forced']:
             if checkResult == 'Stale':
                 print('CHANGED, ', end='')
             if rebuildStale:
@@ -380,7 +392,7 @@ def runStages():
         print('BUILDING:')
         os.chdir(stage['directory'])
         if not run(commands):
-            print(prefix + ': FAILED')
+            print(f'{prefix}: FAILED')
             finish(1)
         writeCacheKey(stage)
 
